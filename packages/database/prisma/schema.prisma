@@ -1,0 +1,466 @@
+// KlinikOS — Prisma Schema
+// Multi-tenant SaaS for clinic management
+// Every tenant-scoped table has tenantId (BR-01: Tenant Isolation)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ─────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  SUPER_ADMIN
+  OWNER
+  DOCTOR
+  NURSE
+  RECEPTIONIST
+  PHARMACIST
+  CASHIER
+}
+
+enum PlanTier {
+  STARTER
+  PRO
+  CLINIC_PLUS
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum BloodType {
+  A_POS
+  A_NEG
+  B_POS
+  B_NEG
+  AB_POS
+  AB_NEG
+  O_POS
+  O_NEG
+  A
+  B
+  AB
+  O
+}
+
+enum AllergenType {
+  DRUG
+  FOOD
+  OTHER
+}
+
+enum AllergySeverity {
+  MILD
+  MODERATE
+  SEVERE
+}
+
+enum MedicalRecordStatus {
+  DRAFT
+  ACTIVE
+  FINALIZED
+}
+
+enum PrescriptionStatus {
+  DRAFT
+  ACTIVE
+  DISPENSED
+  CANCELLED
+}
+
+enum QueueStatus {
+  WAITING
+  IN_PROGRESS
+  DONE_WAITING_CASHIER
+  DONE
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  UNPAID
+  PAID
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CASH
+  QRIS
+  DEBIT_CARD
+  CREDIT_CARD
+  BPJS
+  TRANSFER
+}
+
+enum StockMovementType {
+  IN
+  OUT
+  ADJUSTMENT
+  EXPIRED
+  RETURN
+}
+
+enum InvoiceItemType {
+  CONSULTATION
+  PROCEDURE
+  DRUG
+  OTHER
+}
+
+// ─── Core / Platform ────────────────────────────────────────────────────────────
+
+model Tenant {
+  id                 String             @id @default(uuid())
+  name               String
+  slug               String             @unique
+  planTier           PlanTier           @default(STARTER)
+  subscriptionStatus SubscriptionStatus @default(TRIAL)
+  address            String?
+  phone              String?
+  logoUrl            String?
+  settings           Json               @default("{}")
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  users          User[]
+  patients       Patient[]
+  medicalRecords MedicalRecord[]
+  prescriptions  Prescription[]
+  queues         Queue[]
+  drugs          Drug[]
+  invoices       Invoice[]
+  auditLogs      AuditLog[]
+
+  @@map("tenants")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  tenantId      String
+  name          String
+  email         String
+  passwordHash  String
+  role          UserRole
+  isActive      Boolean   @default(true)
+  twoFaEnabled  Boolean   @default(false)
+  twoFaSecret   String?
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant                Tenant              @relation(fields: [tenantId], references: [id])
+  attendedRecords       MedicalRecord[]     @relation("AttendingDoctor")
+  prescriptionsCreated  Prescription[]
+  stockMovements        StockMovement[]
+  paymentsProcessed     Payment[]
+  allergyRecords        PatientAllergy[]
+  auditLogs             AuditLog[]
+
+  @@unique([email, tenantId])
+  @@index([tenantId])
+  @@map("users")
+}
+
+// ─── Patients ────────────────────────────────────────────────────────────────────
+
+model Patient {
+  id                  String    @id @default(uuid())
+  tenantId            String
+  medicalRecordNumber String
+  name                String    // encrypted at application level (AES-256-GCM)
+  nik                 String?   // encrypted
+  birthDate           DateTime
+  gender              Gender
+  phone               String?   // encrypted
+  bloodType           BloodType?
+  bpjsNumber          String?   // encrypted
+  address             String?
+  isArchived          Boolean   @default(false) // BR-05: soft delete only
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  tenant         Tenant           @relation(fields: [tenantId], references: [id])
+  allergies      PatientAllergy[]
+  medicalRecords MedicalRecord[]
+  queues         Queue[]
+  invoices       Invoice[]
+
+  @@unique([tenantId, medicalRecordNumber])
+  @@index([tenantId, name])    // full-text search by name per clinic
+  @@index([tenantId, nik])     // unique per tenant (duplicate detection)
+  @@map("patients")
+}
+
+model PatientAllergy {
+  id                  String          @id @default(uuid())
+  patientId           String
+  allergenType        AllergenType
+  allergenName        String
+  reactionDescription String?
+  severity            AllergySeverity
+  recordedByUserId    String
+  createdAt           DateTime        @default(now())
+
+  patient          Patient @relation(fields: [patientId], references: [id])
+  recordedByUser   User    @relation(fields: [recordedByUserId], references: [id])
+
+  @@map("patient_allergies")
+}
+
+// ─── Medical Records ─────────────────────────────────────────────────────────────
+
+model MedicalRecord {
+  id                String              @id @default(uuid())
+  tenantId          String
+  patientId         String
+  attendingDoctorId String
+  visitDate         DateTime            @default(now())
+  chiefComplaint    String
+  soapNotes         Json                @default("{}") // { S, O, A, P }
+  vitalSigns        Json                @default("{}") // { bp, hr, temp, weight, height }
+  icd10Codes        String[]            @default([])
+  status            MedicalRecordStatus @default(DRAFT)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  tenant          Tenant         @relation(fields: [tenantId], references: [id])
+  patient         Patient        @relation(fields: [patientId], references: [id])
+  attendingDoctor User           @relation("AttendingDoctor", fields: [attendingDoctorId], references: [id])
+  prescriptions   Prescription[]
+  attachments     Attachment[]
+
+  @@index([tenantId, patientId, visitDate(sort: Desc)])
+  @@map("medical_records")
+}
+
+model Prescription {
+  id              String             @id @default(uuid())
+  tenantId        String
+  medicalRecordId String
+  createdById     String
+  status          PrescriptionStatus @default(ACTIVE)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  tenant        Tenant              @relation(fields: [tenantId], references: [id])
+  medicalRecord MedicalRecord       @relation(fields: [medicalRecordId], references: [id])
+  createdBy     User                @relation(fields: [createdById], references: [id])
+  items         PrescriptionItem[]
+
+  @@map("prescriptions")
+}
+
+model PrescriptionItem {
+  id                       String  @id @default(uuid())
+  prescriptionId           String
+  drugId                   String
+  quantity                 Int
+  dosageInstruction        String
+  allergyOverrideConfirmed Boolean @default(false)
+  allergyOverrideNote      String?
+
+  prescription Prescription @relation(fields: [prescriptionId], references: [id])
+  drug         Drug         @relation(fields: [drugId], references: [id])
+
+  @@map("prescription_items")
+}
+
+// ─── Queue / Scheduling ──────────────────────────────────────────────────────────
+
+model Queue {
+  id           String      @id @default(uuid())
+  tenantId     String
+  patientId    String
+  doctorId     String
+  queueDate    DateTime    @default(now())
+  queueNumber  Int
+  status       QueueStatus @default(WAITING)
+  vitalSigns   Json?       // filled by nurse before doctor examination
+  registeredAt DateTime    @default(now())
+  calledAt     DateTime?
+  completedAt  DateTime?
+  waitedMinutes Int?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  patient  Patient   @relation(fields: [patientId], references: [id])
+  doctor   User      @relation(fields: [doctorId], references: [id])
+  invoices Invoice[]
+
+  @@index([tenantId, queueDate, doctorId, status])
+  @@map("queues")
+}
+
+// ─── Drugs & Inventory ───────────────────────────────────────────────────────────
+
+model Drug {
+  id           String   @id @default(uuid())
+  tenantId     String
+  nameGeneric  String
+  nameBrand    String?
+  category     String?
+  unit         String
+  purchasePrice Decimal  @db.Decimal(15, 2)
+  sellingPrice  Decimal  @db.Decimal(15, 2)
+  minimumStock  Int?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant             Tenant             @relation(fields: [tenantId], references: [id])
+  stocks             DrugStock[]
+  stockMovements     StockMovement[]
+  prescriptionItems  PrescriptionItem[]
+
+  @@index([tenantId, nameGeneric])
+  @@map("drugs")
+}
+
+model DrugStock {
+  id             String    @id @default(uuid())
+  drugId         String
+  batchNumber    String?
+  expiryDate     DateTime?
+  quantityOnHand Int       @default(0)
+  location       String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  drug Drug @relation(fields: [drugId], references: [id])
+
+  @@index([drugId, expiryDate])
+  @@map("drug_stocks")
+}
+
+model StockMovement {
+  id             String            @id @default(uuid())
+  drugId         String
+  movementType   StockMovementType
+  quantity       Int
+  referenceType  String?           // 'PRESCRIPTION' | 'PURCHASE' | 'ADJUSTMENT' | 'EXPIRED'
+  referenceId    String?
+  performedById  String
+  notes          String?
+  createdAt      DateTime          @default(now())
+  // No updatedAt — this table is APPEND ONLY (BR-06 equivalent for stock)
+
+  drug        Drug @relation(fields: [drugId], references: [id])
+  performedBy User @relation(fields: [performedById], references: [id])
+
+  @@index([drugId, createdAt(sort: Desc)])
+  @@map("stock_movements")
+}
+
+// ─── Billing ──────────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id            String        @id @default(uuid())
+  tenantId      String
+  invoiceNumber String
+  queueId       String?
+  patientId     String
+  subtotal      Decimal       @db.Decimal(15, 2)
+  discount      Decimal       @default(0) @db.Decimal(15, 2)
+  total         Decimal       @db.Decimal(15, 2)
+  status        InvoiceStatus @default(UNPAID)
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  tenant   Tenant        @relation(fields: [tenantId], references: [id])
+  patient  Patient       @relation(fields: [patientId], references: [id])
+  queue    Queue?        @relation(fields: [queueId], references: [id])
+  items    InvoiceItem[]
+  payments Payment[]
+
+  @@unique([tenantId, invoiceNumber])
+  @@index([tenantId, status, createdAt])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id         String          @id @default(uuid())
+  invoiceId  String
+  itemType   InvoiceItemType
+  itemName   String
+  quantity   Int
+  unitPrice  Decimal         @db.Decimal(15, 2)
+  totalPrice Decimal         @db.Decimal(15, 2)
+  // BR-04: items cannot be updated after PAID — enforce at application layer
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@map("invoice_items")
+}
+
+model Payment {
+  id              String        @id @default(uuid())
+  invoiceId       String
+  amount          Decimal       @db.Decimal(15, 2)
+  paymentMethod   PaymentMethod
+  referenceNumber String?
+  processedById   String
+  processedAt     DateTime      @default(now())
+
+  invoice     Invoice @relation(fields: [invoiceId], references: [id])
+  processedBy User    @relation(fields: [processedById], references: [id])
+
+  @@map("payments")
+}
+
+// ─── Attachments (Lab results, photos) ──────────────────────────────────────────
+
+model Attachment {
+  id              String   @id @default(uuid())
+  medicalRecordId String
+  fileName        String
+  fileKey         String   // Cloudflare R2 object key
+  fileType        String   // MIME type
+  fileSize        Int      // bytes
+  uploadedById    String
+  createdAt       DateTime @default(now())
+
+  medicalRecord MedicalRecord @relation(fields: [medicalRecordId], references: [id])
+
+  @@map("attachments")
+}
+
+// ─── Audit Logs ────────────────────────────────────────────────────────────────
+// BR-06: No UPDATE or DELETE on this table — enforced at application + DB level
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  tenantId    String
+  userId      String
+  action      String   // e.g. 'INVOICE_REFUNDED', 'PATIENT_UPDATED'
+  entityType  String   // e.g. 'Invoice', 'Patient'
+  entityId    String
+  beforeData  Json?
+  afterData   Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  // No updatedAt — immutable
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([tenantId, entityType, entityId])
+  @@map("audit_logs")
+}

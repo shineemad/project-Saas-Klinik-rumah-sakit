@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+.env.local
+extracted_prd.txt
+*.log
+coverage/
