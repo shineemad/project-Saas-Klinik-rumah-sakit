@@ -5,3 +5,7 @@ dist/
 extracted_prd.txt
 *.log
 coverage/
+
+# Confidential documents — do not commit to public repo
+*.docx
+*.pdf
