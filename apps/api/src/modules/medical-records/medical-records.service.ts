@@ -4,6 +4,7 @@ import {
   BadRequestException,
   UnprocessableEntityException,
 } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { CreateMedicalRecordDto } from "./dto/create-medical-record.dto";
 import { UpdateSoapDto } from "./dto/update-soap.dto";
@@ -34,8 +35,8 @@ export class MedicalRecordsService {
         attendingDoctorId: doctorId,
         visitDate: new Date(),
         chiefComplaint: dto.chiefComplaint,
-        soapNotes: dto.soapNotes ?? {},
-        vitalSigns: dto.vitalSigns ?? {},
+        soapNotes: (dto.soapNotes ?? {}) as Prisma.InputJsonValue,
+        vitalSigns: (dto.vitalSigns ?? {}) as Prisma.InputJsonValue,
         status: "DRAFT",
       },
     });
@@ -75,8 +76,8 @@ export class MedicalRecordsService {
     return this.prisma.medicalRecord.update({
       where: { id },
       data: {
-        soapNotes: dto.soapNotes,
-        vitalSigns: dto.vitalSigns ?? undefined,
+        soapNotes: dto.soapNotes as Prisma.InputJsonValue,
+        vitalSigns: (dto.vitalSigns ?? Prisma.JsonNull) as Prisma.InputJsonValue,
         icd10Codes: dto.icd10Codes,
       },
     });

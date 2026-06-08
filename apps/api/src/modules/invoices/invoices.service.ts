@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from "@nestjs/common";
+import { Prisma, InvoiceStatus, InvoiceItemType } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { UpdateInvoiceItemsDto } from "./dto/update-invoice-items.dto";
 import { RefundDto } from "./dto/refund.dto";
@@ -13,7 +14,7 @@ export class InvoicesService {
 
   async findAll(tenantId: string, status?: string) {
     return this.prisma.invoice.findMany({
-      where: { tenantId, ...(status && { status }) },
+      where: { tenantId, ...(status && { status: status as InvoiceStatus }) },
       include: {
         patient: {
           select: { id: true, name: true, medicalRecordNumber: true },
@@ -86,7 +87,10 @@ export class InvoicesService {
         status: "UNPAID",
         items: {
           create: items.map((i) => ({
-            ...i,
+            itemType: i.itemType as InvoiceItemType,
+            itemName: i.itemName,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice,
             totalPrice: i.quantity * i.unitPrice,
           })),
         },
@@ -111,7 +115,7 @@ export class InvoicesService {
       (sum, i) => sum + i.quantity * i.unitPrice,
       0,
     );
-    const total = subtotal - (invoice.discount ?? 0);
+    const total = subtotal - Number(invoice.discount ?? 0);
 
     await this.prisma.$transaction([
       this.prisma.invoiceItem.deleteMany({ where: { invoiceId: id } }),
@@ -122,7 +126,10 @@ export class InvoicesService {
           total,
           items: {
             create: dto.items.map((i) => ({
-              ...i,
+              itemType: i.itemType as InvoiceItemType,
+              itemName: i.itemName,
+              quantity: i.quantity,
+              unitPrice: i.unitPrice,
               totalPrice: i.quantity * i.unitPrice,
             })),
           },
@@ -155,8 +162,8 @@ export class InvoicesService {
           action: "INVOICE_REFUNDED",
           entityType: "Invoice",
           entityId: id,
-          beforeData: { status: "PAID" },
-          afterData: { status: "REFUNDED", reason: dto.reason },
+          beforeData: { status: "PAID" } as Prisma.InputJsonValue,
+          afterData: { status: "REFUNDED", reason: dto.reason } as Prisma.InputJsonValue,
         },
       }),
     ]);

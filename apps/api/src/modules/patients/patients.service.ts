@@ -98,7 +98,7 @@ export class PatientsService {
         phone: dto.phone ? encrypt(dto.phone) : null,
         nik: dto.nik ? encrypt(dto.nik) : null,
         bpjsNumber: dto.bpjsNumber ? encrypt(dto.bpjsNumber) : null,
-        bloodType: dto.bloodType,
+        bloodType: dto.bloodType ?? null,
         address: dto.address,
       },
     });
@@ -131,7 +131,10 @@ export class PatientsService {
     return this.prisma.patient.update({
       where: { id },
       data: {
-        ...dto,
+        name: dto.name,
+        gender: dto.gender,
+        bloodType: dto.bloodType ?? undefined,
+        address: dto.address,
         phone: dto.phone ? encrypt(dto.phone) : undefined,
         nik: dto.nik ? encrypt(dto.nik) : undefined,
         bpjsNumber: dto.bpjsNumber ? encrypt(dto.bpjsNumber) : undefined,

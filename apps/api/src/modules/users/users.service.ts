@@ -38,9 +38,10 @@ export class UsersService {
         message: "Email sudah terdaftar.",
       });
 
-    const passwordHash = await AuthService.hashPassword(dto.password);
+    const { password, ...userData } = dto;
+    const passwordHash = await AuthService.hashPassword(password);
     return this.prisma.user.create({
-      data: { tenantId, ...dto, password: undefined, passwordHash },
+      data: { tenantId, ...userData, passwordHash },
       select: {
         id: true,
         name: true,

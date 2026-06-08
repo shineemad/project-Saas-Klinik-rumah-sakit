@@ -51,10 +51,11 @@ export class ReportsService {
       todayPatients,
       yesterdayPatients,
       patientDelta: todayPatients - yesterdayPatients,
-      todayRevenue: todayRevenue._sum.total ?? 0,
-      yesterdayRevenue: yesterdayRevenue._sum.total ?? 0,
+      todayRevenue: Number(todayRevenue._sum.total ?? 0),
+      yesterdayRevenue: Number(yesterdayRevenue._sum.total ?? 0),
       revenueDelta:
-        (todayRevenue._sum.total ?? 0) - (yesterdayRevenue._sum.total ?? 0),
+        Number(todayRevenue._sum.total ?? 0) -
+        Number(yesterdayRevenue._sum.total ?? 0),
       pendingInvoices,
       lowStockCount,
     };

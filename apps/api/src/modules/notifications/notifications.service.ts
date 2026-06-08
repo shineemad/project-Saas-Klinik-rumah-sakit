@@ -5,13 +5,26 @@ import { Resend } from "resend";
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
-  private resend: Resend;
+  private resend: Resend | null = null;
 
   constructor(private readonly config: ConfigService) {
-    this.resend = new Resend(config.get<string>("RESEND_API_KEY"));
+    const apiKey = config.get<string>("RESEND_API_KEY");
+    if (apiKey && apiKey.length > 0) {
+      this.resend = new Resend(apiKey);
+    } else {
+      this.logger.warn(
+        "RESEND_API_KEY not configured \u2014 emails will be logged only.",
+      );
+    }
   }
 
   async sendEmail(to: string, subject: string, html: string): Promise<void> {
+    if (!this.resend) {
+      this.logger.log(
+        `[DEV-EMAIL] to=${to} subject="${subject}" (Resend disabled)`,
+      );
+      return;
+    }
     try {
       await this.resend.emails.send({
         from: this.config.get<string>("EMAIL_FROM", "noreply@klinikos.id"),

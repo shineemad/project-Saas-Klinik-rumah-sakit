@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from "@nestjs/common";
+import { PaymentMethod } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { ProcessPaymentDto } from "./dto/process-payment.dto";
 
@@ -36,7 +37,7 @@ export class PaymentsService {
         data: {
           invoiceId,
           amount: invoice.total,
-          paymentMethod: dto.paymentMethod,
+          paymentMethod: dto.paymentMethod as PaymentMethod,
           referenceNumber: dto.referenceNumber,
           processedById: userId,
           processedAt: new Date(),

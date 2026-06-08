@@ -1,3 +1,10 @@
+import { config as loadEnv } from "dotenv";
+import { resolve } from "path";
+
+// Load .env from monorepo root (cwd during `nest start` is apps/api)
+loadEnv({ path: resolve(__dirname, "../../../.env") });
+loadEnv({ path: resolve(__dirname, "../../../.env.local"), override: true });
+
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe, VersioningType } from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";

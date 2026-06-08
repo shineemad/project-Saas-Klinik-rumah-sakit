@@ -7,8 +7,6 @@ import {
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
-import { InjectRedis } from "@nestjs-modules/ioredis";
-import Redis from "ioredis";
 import * as bcrypt from "bcrypt";
 import * as OTPAuth from "otpauth";
 import * as QRCode from "qrcode";

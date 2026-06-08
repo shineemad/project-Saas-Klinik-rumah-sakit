@@ -8,7 +8,10 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "dev:web": "turbo run dev --filter=@klinik-os/web",
+    "dev:api": "turbo run dev --filter=@klinik-os/api",
     "lint": "turbo run lint",
+    "type-check": "turbo run type-check",
     "test": "turbo run test",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
   },

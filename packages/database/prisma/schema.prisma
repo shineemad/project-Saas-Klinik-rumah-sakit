@@ -169,6 +169,7 @@ model User {
   paymentsProcessed     Payment[]
   allergyRecords        PatientAllergy[]
   auditLogs             AuditLog[]
+  queuesAttended        Queue[]             @relation("QueueDoctor")
 
   @@unique([email, tenantId])
   @@index([tenantId])
@@ -299,7 +300,7 @@ model Queue {
 
   tenant   Tenant    @relation(fields: [tenantId], references: [id])
   patient  Patient   @relation(fields: [patientId], references: [id])
-  doctor   User      @relation(fields: [doctorId], references: [id])
+  doctor   User      @relation("QueueDoctor", fields: [doctorId], references: [id])
   invoices Invoice[]
 
   @@index([tenantId, queueDate, doctorId, status])

@@ -7,26 +7,7 @@ import {
   Matches,
   MaxLength,
 } from "class-validator";
-
-export enum Gender {
-  MALE = "MALE",
-  FEMALE = "FEMALE",
-}
-
-export enum BloodType {
-  A = "A",
-  B = "B",
-  AB = "AB",
-  O = "O",
-  A_POS = "A+",
-  A_NEG = "A-",
-  B_POS = "B+",
-  B_NEG = "B-",
-  AB_POS = "AB+",
-  AB_NEG = "AB-",
-  O_POS = "O+",
-  O_NEG = "O-",
-}
+import { Gender, BloodType } from "@prisma/client";
 
 export class CreatePatientDto {
   @IsString()

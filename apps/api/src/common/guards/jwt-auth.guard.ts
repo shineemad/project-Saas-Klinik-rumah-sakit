@@ -24,13 +24,13 @@ export class JwtAuthGuard extends AuthGuard("jwt") implements CanActivate {
     return super.canActivate(context);
   }
 
-  handleRequest(err: Error, user: unknown) {
+  handleRequest<TUser = unknown>(err: any, user: any): TUser {
     if (err || !user) {
       throw new UnauthorizedException({
         code: "UNAUTHORIZED",
         message: "Token tidak valid atau kadaluarsa.",
       });
     }
-    return user;
+    return user as TUser;
   }
 }

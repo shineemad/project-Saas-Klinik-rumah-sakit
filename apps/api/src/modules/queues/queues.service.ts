@@ -112,7 +112,7 @@ export class QueuesService {
 
     return this.prisma.queue.update({
       where: { id: queueId },
-      data: { vitalSigns },
+      data: { vitalSigns: vitalSigns as object },
     });
   }
 }
