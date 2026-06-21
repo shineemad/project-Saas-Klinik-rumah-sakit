@@ -29,7 +29,14 @@ function flushQueue(token: string | null) {
 }
 
 api.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    // Unwrap envelope standar backend: { success, data, meta } -> data
+    const body = res.data;
+    if (body && typeof body === "object" && "success" in body && "data" in body) {
+      res.data = body.data;
+    }
+    return res;
+  },
   async (error: AxiosError) => {
     const original = error.config as InternalAxiosRequestConfig & {
       _retry?: boolean;
@@ -64,11 +71,12 @@ api.interceptors.response.use(
     isRefreshing = true;
 
     try {
-      const { data } = await axios.post(`${API_URL}/v1/auth/refresh`, {
+      const { data: body } = await axios.post(`${API_URL}/v1/auth/refresh`, {
         refreshToken,
       });
-      const newAccess = data.accessToken;
-      const newRefresh = data.refreshToken;
+      const payload = body?.data ?? body;
+      const newAccess = payload.accessToken;
+      const newRefresh = payload.refreshToken;
       Cookies.set(ACCESS_TOKEN_KEY, newAccess, { sameSite: "lax" });
       Cookies.set(REFRESH_TOKEN_KEY, newRefresh, { sameSite: "lax" });
       flushQueue(newAccess);

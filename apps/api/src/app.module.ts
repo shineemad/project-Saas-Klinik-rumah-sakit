@@ -31,12 +31,7 @@ import { storageConfig } from "./config/storage.config";
     // ── Core Configuration ────────────────────────────────────────────────────
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: [
-        ".env.local",
-        ".env",
-        "../../.env.local",
-        "../../.env",
-      ],
+      envFilePath: [".env.local", ".env", "../../.env.local", "../../.env"],
       load: [appConfig, databaseConfig, jwtConfig, redisConfig, storageConfig],
     }),
 

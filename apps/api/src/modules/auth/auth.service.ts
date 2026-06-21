@@ -13,6 +13,7 @@ import * as QRCode from "qrcode";
 import { v4 as uuidv4 } from "uuid";
 import { PrismaService } from "../../database/prisma.service";
 import { LoginDto } from "./dto/login.dto";
+import { RegisterDto } from "./dto/register.dto";
 import { JwtPayload, UserRole } from "../../common/types";
 
 const BCRYPT_ROUNDS = 12;
@@ -61,7 +62,7 @@ export class AuthService {
 
     if (user.twoFaEnabled) {
       if (!dto.totpCode) {
-        return { requires2fa: true };
+        return { requires2FA: true };
       }
       await this.validateTotp(user.twoFaSecret!, dto.totpCode);
     }
@@ -87,10 +88,86 @@ export class AuthService {
       user: {
         id: user.id,
         name: user.name,
+        email: user.email,
         role: user.role,
-        tenant: { id: user.tenantId, name: user.tenant.name },
+        tenantId: user.tenantId,
+        tenantName: user.tenant.name,
       },
     };
+  }
+
+  async register(dto: RegisterDto) {
+    const existing = await this.prisma.user.findFirst({
+      where: { email: dto.email },
+    });
+    if (existing) {
+      throw new BadRequestException({
+        code: "EMAIL_ALREADY_EXISTS",
+        message: "Email sudah terdaftar. Silakan masuk.",
+      });
+    }
+
+    const slug = await this.generateUniqueSlug(dto.clinicName);
+    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+
+    const { tenant, user } = await this.prisma.$transaction(
+      async (tx) => {
+        const tenant = await tx.tenant.create({
+          data: { name: dto.clinicName, slug, phone: dto.phone },
+        });
+        const user = await tx.user.create({
+          data: {
+            tenantId: tenant.id,
+            name: dto.ownerName,
+            email: dto.email,
+            passwordHash,
+            role: "OWNER",
+          },
+        });
+        return { tenant, user };
+      },
+      { maxWait: 10000, timeout: 20000 },
+    );
+
+    const sessionId = uuidv4();
+    const tokens = await this.generateTokens({
+      sub: user.id,
+      email: user.email,
+      role: user.role as UserRole,
+      tenantId: user.tenantId,
+      sessionId,
+    });
+
+    this.logger.log(`New clinic registered: ${tenant.name} (${user.email})`);
+
+    return {
+      ...tokens,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        tenantId: user.tenantId,
+        tenantName: tenant.name,
+      },
+    };
+  }
+
+  private async generateUniqueSlug(name: string): Promise<string> {
+    const base =
+      name
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 40) || "klinik";
+    let slug = base;
+    let attempt = 0;
+    while (await this.prisma.tenant.findUnique({ where: { slug } })) {
+      attempt += 1;
+      slug = `${base}-${attempt}`;
+    }
+    return slug;
   }
 
   async refreshTokens(refreshToken: string) {
@@ -196,7 +273,7 @@ export class AuthService {
         expiresIn: this.config.get<string>("jwt.refreshExpiresIn"),
       }),
     ]);
-    return { access_token: accessToken, refresh_token: refreshToken };
+    return { accessToken, refreshToken };
   }
 
   private async validateTotp(secret: string, code: string) {

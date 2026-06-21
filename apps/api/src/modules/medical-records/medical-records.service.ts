@@ -77,7 +77,8 @@ export class MedicalRecordsService {
       where: { id },
       data: {
         soapNotes: dto.soapNotes as Prisma.InputJsonValue,
-        vitalSigns: (dto.vitalSigns ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+        vitalSigns: (dto.vitalSigns ??
+          Prisma.JsonNull) as Prisma.InputJsonValue,
         icd10Codes: dto.icd10Codes,
       },
     });

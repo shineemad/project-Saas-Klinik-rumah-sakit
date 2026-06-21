@@ -163,7 +163,10 @@ export class InvoicesService {
           entityType: "Invoice",
           entityId: id,
           beforeData: { status: "PAID" } as Prisma.InputJsonValue,
-          afterData: { status: "REFUNDED", reason: dto.reason } as Prisma.InputJsonValue,
+          afterData: {
+            status: "REFUNDED",
+            reason: dto.reason,
+          } as Prisma.InputJsonValue,
         },
       }),
     ]);

@@ -34,7 +34,7 @@ export function LoginForm() {
     try {
       const { data } = await api.post("/auth/login", values);
 
-      if (data?.require2FA) {
+      if (data?.requires2FA) {
         setRequire2FA(true);
         toast.info("Masukkan kode 2FA dari aplikasi authenticator Anda");
         return;

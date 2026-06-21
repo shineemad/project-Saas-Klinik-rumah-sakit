@@ -12,6 +12,7 @@ import { Throttle } from "@nestjs/throttler";
 import { ApiTags, ApiBearerAuth } from "@nestjs/swagger";
 import { AuthService } from "./auth.service";
 import { LoginDto } from "./dto/login.dto";
+import { RegisterDto } from "./dto/register.dto";
 import { ForgotPasswordDto } from "./dto/forgot-password.dto";
 import { ResetPasswordDto } from "./dto/reset-password.dto";
 import { Setup2faDto, Verify2faDto } from "./dto/two-factor.dto";
@@ -35,10 +36,18 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ auth: { limit: 5, ttl: 60000 } })
+  @Post("register")
+  @HttpCode(HttpStatus.CREATED)
+  register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto);
+  }
+
+  @Public()
   @Throttle({ auth: { limit: 10, ttl: 60000 } })
   @Post("refresh")
   @HttpCode(HttpStatus.OK)
-  refresh(@Body("refresh_token") token: string) {
+  refresh(@Body("refreshToken") token: string) {
     return this.authService.refreshTokens(token);
   }
 
