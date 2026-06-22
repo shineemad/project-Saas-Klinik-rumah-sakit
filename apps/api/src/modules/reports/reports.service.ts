@@ -43,8 +43,7 @@ export class ReportsService {
         _sum: { total: true },
       }),
       this.prisma.invoice.count({ where: { tenantId, status: "UNPAID" } }),
-      // Low stock count placeholder
-      Promise.resolve(0),
+      this.countLowStock(tenantId),
     ]);
 
     return {
@@ -59,6 +58,20 @@ export class ReportsService {
       pendingInvoices,
       lowStockCount,
     };
+  }
+
+  private async countLowStock(tenantId: string): Promise<number> {
+    const drugs = await this.prisma.drug.findMany({
+      where: { tenantId, isActive: true },
+      select: {
+        minimumStock: true,
+        stocks: { select: { quantityOnHand: true } },
+      },
+    });
+    return drugs.filter((d) => {
+      const totalStock = d.stocks.reduce((sum, s) => sum + s.quantityOnHand, 0);
+      return totalStock <= (d.minimumStock ?? 0);
+    }).length;
   }
 
   async getDailyReport(tenantId: string, dateStr?: string) {

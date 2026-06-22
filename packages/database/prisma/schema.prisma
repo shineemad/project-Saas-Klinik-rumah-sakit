@@ -152,7 +152,7 @@ model User {
   id            String    @id @default(uuid())
   tenantId      String
   name          String
-  email         String
+  email         String    @unique
   passwordHash  String
   role          UserRole
   isActive      Boolean   @default(true)
@@ -171,7 +171,6 @@ model User {
   auditLogs             AuditLog[]
   queuesAttended        Queue[]             @relation("QueueDoctor")
 
-  @@unique([email, tenantId])
   @@index([tenantId])
   @@map("users")
 }

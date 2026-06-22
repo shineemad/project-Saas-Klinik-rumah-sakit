@@ -30,9 +30,18 @@ function flushQueue(token: string | null) {
 
 api.interceptors.response.use(
   (res) => {
-    // Unwrap envelope standar backend: { success, data, meta } -> data
+    // Unwrap envelope standar backend: { success, data, meta } -> data.
+    // meta (paginasi) dipertahankan sebagai properti tambahan pada response.
     const body = res.data;
-    if (body && typeof body === "object" && "success" in body && "data" in body) {
+    if (
+      body &&
+      typeof body === "object" &&
+      "success" in body &&
+      "data" in body
+    ) {
+      if ("meta" in body) {
+        (res as { meta?: unknown }).meta = body.meta;
+      }
       res.data = body.data;
     }
     return res;

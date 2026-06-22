@@ -13,7 +13,7 @@ import { useAuthStore } from "@/lib/auth-store";
 const loginSchema = z.object({
   email: z.string().email("Format email tidak valid"),
   password: z.string().min(8, "Password minimal 8 karakter"),
-  twoFactorCode: z.string().optional(),
+  totpCode: z.string().optional(),
 });
 
 type LoginInput = z.infer<typeof loginSchema>;
@@ -100,16 +100,16 @@ export function LoginForm() {
       {require2FA && (
         <div>
           <label
-            htmlFor="twoFactorCode"
+            htmlFor="totpCode"
             className="block text-sm font-medium text-slate-700"
           >
             Kode 2FA
           </label>
           <input
-            id="twoFactorCode"
+            id="totpCode"
             inputMode="numeric"
             maxLength={6}
-            {...register("twoFactorCode")}
+            {...register("totpCode")}
             className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm tracking-[0.5em] shadow-sm outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
             placeholder="000000"
           />

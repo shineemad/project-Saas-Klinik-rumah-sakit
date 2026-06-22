@@ -12,6 +12,8 @@ import * as OTPAuth from "otpauth";
 import * as QRCode from "qrcode";
 import { v4 as uuidv4 } from "uuid";
 import { PrismaService } from "../../database/prisma.service";
+import { RedisService } from "../../database/redis.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
 import { JwtPayload, UserRole } from "../../common/types";
@@ -22,6 +24,8 @@ const LOCKOUT_DURATION_SECONDS = 900; // 15 minutes
 const REFRESH_TOKEN_PREFIX = "refresh:";
 const RESET_TOKEN_PREFIX = "reset:";
 const FAILED_LOGIN_PREFIX = "failed_login:";
+const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+const RESET_TOKEN_TTL_SECONDS = 60 * 60; // 1 hour
 
 @Injectable()
 export class AuthService {
@@ -31,34 +35,42 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
-    // @InjectRedis() private readonly redis: Redis,
+    private readonly redis: RedisService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async login(dto: LoginDto, ipAddress: string) {
     const lockoutKey = `${FAILED_LOGIN_PREFIX}${dto.email}`;
 
-    // TODO: check Redis for lockout
-    // const failedAttempts = await this.redis.get(lockoutKey);
-    // if (failedAttempts && parseInt(failedAttempts) >= MAX_FAILED_ATTEMPTS) {
-    //   throw new UnauthorizedException({ code: 'ACCOUNT_LOCKED', message: 'Akun terkunci sementara. Coba lagi dalam 15 menit.' });
-    // }
+    const failedAttempts = await this.redis.get(lockoutKey);
+    if (failedAttempts && parseInt(failedAttempts, 10) >= MAX_FAILED_ATTEMPTS) {
+      throw new UnauthorizedException({
+        code: "ACCOUNT_LOCKED",
+        message: "Akun terkunci sementara. Coba lagi dalam 15 menit.",
+      });
+    }
 
-    const user = await this.prisma.user.findFirst({
-      where: { email: dto.email, isActive: true },
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
       include: { tenant: true },
     });
 
-    if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
-      // TODO: increment failed attempts in Redis
-      // await this.redis.incr(lockoutKey);
-      // await this.redis.expire(lockoutKey, LOCKOUT_DURATION_SECONDS);
+    if (
+      !user ||
+      !user.isActive ||
+      !(await bcrypt.compare(dto.password, user.passwordHash))
+    ) {
+      const attempts = await this.redis.incr(lockoutKey);
+      if (attempts === 1) {
+        await this.redis.expire(lockoutKey, LOCKOUT_DURATION_SECONDS);
+      }
       throw new UnauthorizedException({
         code: "INVALID_CREDENTIALS",
         message: "Email atau password salah.",
       });
     }
 
-    // TODO: await this.redis.del(lockoutKey);
+    await this.redis.del(lockoutKey);
 
     if (user.twoFaEnabled) {
       if (!dto.totpCode) {
@@ -75,6 +87,12 @@ export class AuthService {
       tenantId: user.tenantId,
       sessionId,
     });
+
+    await this.redis.set(
+      `${REFRESH_TOKEN_PREFIX}${sessionId}`,
+      tokens.refreshToken,
+      REFRESH_TOKEN_TTL_SECONDS,
+    );
 
     await this.prisma.user.update({
       where: { id: user.id },
@@ -97,7 +115,7 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
-    const existing = await this.prisma.user.findFirst({
+    const existing = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
     if (existing) {
@@ -138,6 +156,12 @@ export class AuthService {
       sessionId,
     });
 
+    await this.redis.set(
+      `${REFRESH_TOKEN_PREFIX}${sessionId}`,
+      tokens.refreshToken,
+      REFRESH_TOKEN_TTL_SECONDS,
+    );
+
     this.logger.log(`New clinic registered: ${tenant.name} (${user.email})`);
 
     return {
@@ -176,8 +200,27 @@ export class AuthService {
         secret: this.config.get<string>("jwt.refreshSecret"),
       });
 
-      // TODO: validate against Redis stored token
-      const newTokens = await this.generateTokens(payload);
+      const storedKey = `${REFRESH_TOKEN_PREFIX}${payload.sessionId}`;
+      const stored = await this.redis.get(storedKey);
+      if (!stored || stored !== refreshToken) {
+        throw new UnauthorizedException();
+      }
+
+      const newTokens = await this.generateTokens({
+        sub: payload.sub,
+        email: payload.email,
+        role: payload.role,
+        tenantId: payload.tenantId,
+        sessionId: payload.sessionId,
+      });
+
+      // Rotate: replace the stored refresh token with the new one
+      await this.redis.set(
+        storedKey,
+        newTokens.refreshToken,
+        REFRESH_TOKEN_TTL_SECONDS,
+      );
+
       return newTokens;
     } catch {
       throw new UnauthorizedException({
@@ -188,31 +231,52 @@ export class AuthService {
   }
 
   async logout(sessionId: string) {
-    // TODO: await this.redis.del(`${REFRESH_TOKEN_PREFIX}${sessionId}`);
+    await this.redis.del(`${REFRESH_TOKEN_PREFIX}${sessionId}`);
   }
 
   async forgotPassword(email: string) {
-    const user = await this.prisma.user.findFirst({
-      where: { email, isActive: true },
+    const user = await this.prisma.user.findUnique({
+      where: { email },
     });
     // Always return success to prevent email enumeration
-    if (!user)
+    if (!user || !user.isActive)
       return { message: "Jika email terdaftar, link reset akan dikirim." };
 
     const resetToken = uuidv4();
-    // TODO: store in Redis with 1 hour TTL
-    // await this.redis.set(`${RESET_TOKEN_PREFIX}${resetToken}`, user.id, 'EX', 3600);
-    // TODO: send email via NotificationsService
+    await this.redis.set(
+      `${RESET_TOKEN_PREFIX}${resetToken}`,
+      user.id,
+      RESET_TOKEN_TTL_SECONDS,
+    );
+
+    const frontendUrl = this.config.get<string>("app.frontendUrl");
+    const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`;
+    await this.notifications.sendEmail(
+      user.email,
+      "[KlinikOS] Reset Password",
+      `<p>Klik link berikut untuk mengatur ulang password Anda (berlaku 1 jam):</p><p><a href="${resetLink}">${resetLink}</a></p><p>Abaikan email ini jika Anda tidak meminta reset password.</p>`,
+    );
 
     return { message: "Jika email terdaftar, link reset akan dikirim." };
   }
 
   async resetPassword(token: string, newPassword: string) {
-    // TODO: const userId = await this.redis.get(`${RESET_TOKEN_PREFIX}${token}`);
-    // if (!userId) throw new BadRequestException({ code: 'INVALID_RESET_TOKEN', message: 'Token reset tidak valid atau kadaluarsa.' });
+    const resetKey = `${RESET_TOKEN_PREFIX}${token}`;
+    const userId = await this.redis.get(resetKey);
+    if (!userId) {
+      throw new BadRequestException({
+        code: "INVALID_RESET_TOKEN",
+        message: "Token reset tidak valid atau kadaluarsa.",
+      });
+    }
+
     const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-    // await this.prisma.user.update({ where: { id: userId }, data: { passwordHash: hash } });
-    // await this.redis.del(`${RESET_TOKEN_PREFIX}${token}`);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: hash },
+    });
+    await this.redis.del(resetKey);
+
     return { message: "Password berhasil diubah." };
   }
 

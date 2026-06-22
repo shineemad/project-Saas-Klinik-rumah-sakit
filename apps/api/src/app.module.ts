@@ -3,6 +3,7 @@ import { ConfigModule } from "@nestjs/config";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { ScheduleModule } from "@nestjs/schedule";
 import { DatabaseModule } from "./database/database.module";
+import { RedisModule } from "./database/redis.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { TenantsModule } from "./modules/tenants/tenants.module";
 import { UsersModule } from "./modules/users/users.module";
@@ -54,6 +55,7 @@ import { storageConfig } from "./config/storage.config";
 
     // ── Infrastructure ────────────────────────────────────────────────────────
     DatabaseModule,
+    RedisModule,
     RealtimeModule,
     JobsModule,
 
