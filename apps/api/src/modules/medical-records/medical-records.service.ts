@@ -8,10 +8,17 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { CreateMedicalRecordDto } from "./dto/create-medical-record.dto";
 import { UpdateSoapDto } from "./dto/update-soap.dto";
+import { InvoicesService } from "../invoices/invoices.service";
+
+/** Tarif default jasa konsultasi bila klinik belum mengatur di settings tenant. */
+const DEFAULT_CONSULTATION_FEE = 50000;
 
 @Injectable()
 export class MedicalRecordsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly invoices: InvoicesService,
+  ) {}
 
   async create(
     tenantId: string,
@@ -98,11 +105,61 @@ export class MedicalRecordsService {
       data: { status: "FINALIZED" },
     });
 
-    // Trigger invoice creation via queue update
-    await this.prisma.queue.updateMany({
+    // Antrean pasien yang sedang diperiksa → menunggu kasir
+    const queue = await this.prisma.queue.findFirst({
       where: { patientId: record.patientId, tenantId, status: "IN_PROGRESS" },
-      data: { status: "DONE_WAITING_CASHIER" },
     });
+    if (queue) {
+      await this.prisma.queue.update({
+        where: { id: queue.id },
+        data: { status: "DONE_WAITING_CASHIER" },
+      });
+    }
+
+    // US-10 AC1: invoice otomatis dibuat berisi jasa dokter + obat yang diresepkan
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+    const consultationFee =
+      typeof settings.consultationFee === "number" &&
+      settings.consultationFee >= 0
+        ? settings.consultationFee
+        : DEFAULT_CONSULTATION_FEE;
+
+    const invoiceItems: Array<{
+      itemType: string;
+      itemName: string;
+      quantity: number;
+      unitPrice: number;
+    }> = [
+      {
+        itemType: "CONSULTATION",
+        itemName: "Jasa Konsultasi Dokter",
+        quantity: 1,
+        unitPrice: consultationFee,
+      },
+    ];
+
+    for (const prescription of record.prescriptions) {
+      if (prescription.status === "CANCELLED") continue;
+      for (const item of prescription.items) {
+        invoiceItems.push({
+          itemType: "DRUG",
+          itemName: item.drug.nameGeneric,
+          quantity: item.quantity,
+          unitPrice: Number(item.drug.sellingPrice),
+        });
+      }
+    }
+
+    await this.invoices.createFromMedicalRecord(
+      tenantId,
+      record.patientId,
+      queue?.id ?? null,
+      invoiceItems,
+    );
 
     return updated;
   }

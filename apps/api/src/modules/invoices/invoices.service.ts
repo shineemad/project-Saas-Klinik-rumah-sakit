@@ -51,7 +51,7 @@ export class InvoicesService {
   async createFromMedicalRecord(
     tenantId: string,
     patientId: string,
-    queueId: string,
+    queueId: string | null,
     items: Array<{
       itemType: string;
       itemName: string;
